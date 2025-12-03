@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue';
 import ThreeScene from '@/components/ThreeScene.vue';
 import deepseekService, { type Message } from '../services/deepseek';
+import { threeSceneSystemPrompt } from '../utils/prompts';
 
 // 对话消息
 const messages = ref<Message[]>([
@@ -70,38 +71,7 @@ const sendMessage = async () => {
 };
 
 // 系统提示词
-const systemPrompt = `你是一个Three.js场景控制助手，只能处理控制3D场景的命令。
-
-请遵循以下规则：
-1. 只能输出JSON格式，不要包含其他任何文本
-2. JSON结构：{"action": "操作类型", "params": {"参数1": "值1", "参数2": "值2"}}
-3. 支持的操作类型：
-   - addObject: 添加对象（立方体、球体、圆柱体）
-     - params: {type: "cube"|"sphere"|"cylinder", size: number, color: string, position?: {x: number, y: number, z: number}}
-   - rotateObject: 旋转对象
-     - params: {x: number, y: number, z: number}
-   - scaleObject: 缩放对象
-     - params: {x: number, y: number, z: number}
-   - changeColor: 改变颜色
-     - params: {color: string}
-   - clearScene: 清空场景
-     - params: {}
-4. 如果用户的请求无法识别为上述操作，请输出：{"action": "unknown", "params": {}}
-
-例子：
-- 用户输入：添加一个红色立方体
-  输出：{"action": "addObject", "params": {"type": "cube", "size": 1, "color": "#ff0000"}}
-- 用户输入：在(1, 0, -2)位置添加一个绿色球体，大小为2
-  输出：{"action": "addObject", "params": {"type": "sphere", "size": 2, "color": "#00ff00", "position": {"x": 1, "y": 0, "z": -2}}}
-- 用户输入：旋转模型
-  输出：{"action": "rotateObject", "params": {"x": 0, "y": 0.1, "z": 0}}
-- 用户输入：放大两倍
-  输出：{"action": "scaleObject", "params": {"x": 2, "y": 2, "z": 2}}
-- 用户输入：把颜色改成蓝色
-  输出：{"action": "changeColor", "params": {"color": "#0000ff"}}
-- 用户输入：清空场景
-  输出：{"action": "clearScene", "params": {}}
-`;
+const systemPrompt = threeSceneSystemPrompt;
 
 // ThreeScene组件引用
 const threeSceneRef = ref<InstanceType<typeof ThreeScene> | null>(null);
@@ -148,58 +118,161 @@ const parseAndExecuteCommand = (response: string) => {
 
 // 执行命令
 const executeCommand = (command: any) => {
-  if (!threeSceneRef.value) {
-    console.error('ThreeScene component not found');
-    return;
-  }
-
-  if (!command || typeof command !== 'object') {
-    console.error('Invalid command format:', command);
-    return;
-  }
-
-  if (!command.action) {
-    console.error('Command action is missing:', command);
-    return;
-  }
-
-  // 确保params是对象
-  if (command.params && typeof command.params !== 'object') {
-    console.error('Command params must be an object:', command);
-    return;
-  }
-
   try {
+    // 验证ThreeScene组件是否存在
+    if (!threeSceneRef.value) {
+      console.error('ThreeScene组件未找到');
+      return;
+    }
+
+    // 验证命令格式
+    if (typeof command !== 'object' || command === null) {
+      console.error('命令格式错误，必须是对象:', command);
+      return;
+    }
+
+    // 验证action字段
+    if (!command.action) {
+      console.error('命令缺少action字段:', command);
+      return;
+    }
+
+    // 验证params字段
+    if (!command.params || typeof command.params !== 'object') {
+      console.error('命令缺少有效的params字段:', command);
+      return;
+    }
+
+    // 根据不同的action执行不同的操作
     switch (command.action) {
       case 'addObject':
-        if (!command.params?.type) {
-          console.error('Missing required parameter "type" for addObject command');
+        // 验证addObject的必填参数
+        if (!command.params.type) {
+          console.error('addObject命令缺少type参数:', command);
           return;
         }
         threeSceneRef.value.addObject(command.params);
         break;
+      
+      case 'addMultipleObjects':
+        // 验证addMultipleObjects的必填参数
+        if (!Array.isArray(command.params.objects)) {
+          console.error('addMultipleObjects命令缺少有效的objects数组:', command);
+          return;
+        }
+        threeSceneRef.value.addMultipleObjects(command.params);
+        break;
+      
+      case 'selectObject':
+        threeSceneRef.value.selectObject(command.params);
+        break;
+      
+      case 'removeObject':
+        threeSceneRef.value.removeObject();
+        break;
+      
+      case 'removeObjectByName':
+        // 验证removeObjectByName的必填参数
+        if (!command.params.name) {
+          console.error('removeObjectByName命令缺少name参数:', command);
+          return;
+        }
+        threeSceneRef.value.removeObjectByName(command.params);
+        break;
+      
       case 'rotateObject':
-        threeSceneRef.value.rotateObject(command.params || {});
+        threeSceneRef.value.rotateObject(command.params);
         break;
+      
       case 'scaleObject':
-        threeSceneRef.value.scaleObject(command.params || {});
+        threeSceneRef.value.scaleObject(command.params);
         break;
+      
+      case 'moveObject':
+        threeSceneRef.value.moveObject(command.params);
+        break;
+      
       case 'changeColor':
-        if (!command.params?.color) {
-          console.error('Missing required parameter "color" for changeColor command');
+        // 验证changeColor的必填参数
+        if (!command.params.color) {
+          console.error('changeColor命令缺少color参数:', command);
           return;
         }
         threeSceneRef.value.changeColor(command.params);
         break;
+      
+      case 'changeMaterial':
+        // 验证changeMaterial的必填参数
+        if (!command.params.material) {
+          console.error('changeMaterial命令缺少material参数:', command);
+          return;
+        }
+        threeSceneRef.value.changeMaterial(command.params);
+        break;
+      
       case 'clearScene':
         threeSceneRef.value.clearScene();
         break;
+      
+      case 'setBackgroundColor':
+        // 验证setBackgroundColor的必填参数
+        if (!command.params.color) {
+          console.error('setBackgroundColor命令缺少color参数:', command);
+          return;
+        }
+        threeSceneRef.value.setBackgroundColor(command.params);
+        break;
+      
+      case 'setEnvironment':
+        // 验证setEnvironment的必填参数
+        if (!command.params.color || command.params.intensity === undefined) {
+          console.error('setEnvironment命令缺少color或intensity参数:', command);
+          return;
+        }
+        threeSceneRef.value.setEnvironment(command.params);
+        break;
+      
+      case 'addDirectionalLight':
+        // 验证addDirectionalLight的必填参数
+        if (!command.params.color || command.params.intensity === undefined) {
+          console.error('addDirectionalLight命令缺少color或intensity参数:', command);
+          return;
+        }
+        threeSceneRef.value.addDirectionalLight(command.params);
+        break;
+      
+      case 'addPointLight':
+        // 验证addPointLight的必填参数
+        if (!command.params.color || command.params.intensity === undefined) {
+          console.error('addPointLight命令缺少color或intensity参数:', command);
+          return;
+        }
+        threeSceneRef.value.addPointLight(command.params);
+        break;
+      
+      case 'addSpotLight':
+        // 验证addSpotLight的必填参数
+        if (!command.params.color || command.params.intensity === undefined) {
+          console.error('addSpotLight命令缺少color或intensity参数:', command);
+          return;
+        }
+        threeSceneRef.value.addSpotLight(command.params);
+        break;
+      
+      case 'setCameraPosition':
+        threeSceneRef.value.setCameraPosition(command.params);
+        break;
+      
+      case 'lookAt':
+        threeSceneRef.value.lookAt(command.params);
+        break;
+      
       default:
-        console.log('Unknown command:', command.action);
+        console.warn('未知的命令action:', command.action);
+        break;
     }
   } catch (error) {
-    console.error('Error executing command:', error);
-    console.error('Command:', command);
+    console.error('执行命令时出错:', error, '命令:', command);
   }
 };
 
