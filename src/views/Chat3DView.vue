@@ -78,41 +78,63 @@ const threeSceneRef = ref<InstanceType<typeof ThreeScene> | null>(null);
 
 // 解析并执行命令
 const parseAndExecuteCommand = (response: string) => {
+  console.log('Raw response:', response);
+  
   try {
-    // 清理响应字符串
-    let cleanResponse = response.trim();
-    
-    // 移除可能的前后引号
-    if ((cleanResponse.startsWith('"') && cleanResponse.endsWith('"')) || 
-        (cleanResponse.startsWith('\'') && cleanResponse.endsWith('\''))) {
-      cleanResponse = cleanResponse.slice(1, -1);
+    // 首先尝试直接解析整个响应
+    try {
+      const command = JSON.parse(response);
+      executeCommand(command);
+      return;
+    } catch (directParseError) {
+      console.log('Direct parse failed, trying to extract multiple JSON objects...');
     }
     
-    // 尝试直接解析清理后的字符串
-    const command = JSON.parse(cleanResponse);
-    executeCommand(command);
-  } catch (error) {
-    try {
-      // 如果直接解析失败，尝试提取JSON部分
-      // 改进的正则表达式，可以处理嵌套的JSON结构
-      const jsonMatch = response.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        // 再次清理提取出的JSON
-        let cleanJson = jsonMatch[0].trim();
-        
-        // 移除可能的前后引号
-        if ((cleanJson.startsWith('"') && cleanJson.endsWith('"')) || 
-            (cleanJson.startsWith('\'') && cleanJson.endsWith('\''))) {
-          cleanJson = cleanJson.slice(1, -1);
+    // 方法1: 尝试按行分割响应，处理每行可能的JSON
+    const lines = response.split('\n');
+    let processed = false;
+    
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (trimmedLine.startsWith('{') && trimmedLine.endsWith('}')) {
+        try {
+          const command = JSON.parse(trimmedLine);
+          executeCommand(command);
+          processed = true;
+        } catch (lineError) {
+          console.log('Line parse failed, trying regex extraction:', lineError);
         }
+      }
+    }
+    
+    if (processed) {
+      return;
+    }
+    
+    // 方法2: 使用正则表达式匹配所有JSON对象（更可靠的方法）
+    const jsonRegex = /\{(?:[^{}]|\{[^}]*\})*\}/g;
+    let match;
+    
+    while ((match = jsonRegex.exec(response)) !== null) {
+      try {
+        const jsonStr = match[0];
+        console.log('Extracted JSON:', jsonStr);
         
+        // 清理JSON字符串（移除换行符和多余空格）
+        const cleanJson = jsonStr.replace(/[\n\t]/g, ' ');
+        
+        // 解析JSON
         const command = JSON.parse(cleanJson);
         executeCommand(command);
+      } catch (jsonError) {
+        console.error('Parse Single Command Error:', jsonError);
+        console.error('Error position:', jsonError instanceof SyntaxError ? (jsonError as any).position : 'Unknown');
+        console.error('Problematic JSON:', match[0]);
       }
-    } catch (secondError) {
-      console.error('Parse Command Error:', secondError);
-      console.error('Raw response:', response);
     }
+  } catch (error) {
+    console.error('Parse Command Error:', error);
+    console.error('Raw response:', response);
   }
 };
 
